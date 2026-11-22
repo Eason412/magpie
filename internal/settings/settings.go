@@ -511,7 +511,9 @@ type Settings struct {
 	// (--system-prompt-file), in place of Claude Code's (about 1.1K tokens
 	// a request on Sonnet 5.5), and not in its first message. Still the
 	// real Claude Code, its billing line and identity line kept; off, as by
-	// default, the run is the shape every Claude Code run has.
+	// default, the run is the shape every Claude Code run has. A client
+	// Claude Code's run is lean either way: its instructions are Claude
+	// Code's prompt already (gateway's sendsClaudeCodePrompt).
 	ClaudeLeanPrompt bool `json:"claudeLeanPrompt,omitempty"`
 	// ClaudeNoExtraUsage keeps magpie from sending a Claude subscription
 	// account a request once a plan window that stops it is used up,

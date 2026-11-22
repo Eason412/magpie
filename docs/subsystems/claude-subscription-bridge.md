@@ -1194,6 +1194,25 @@ the conversation alone. Claude Code still sends its billing block and its
 identity line, so requests come from the real binary. They no longer carry
 Claude Code's prompt, and that is the ban risk the setting names.
 
+A caller that is Claude Code itself already sends a whole Claude Code
+prompt, so its run is lean with the setting off too
+(`sendsClaudeCodePrompt`): its User-Agent is Claude Code's
+(`claudeCodeAsks`, which takes the one another magpie names), its
+instructions begin with Claude Code's or the Agent SDK's identity line,
+and they hold the security line every Claude Code prompt has. Kept, the
+run's own prompt went before the caller's, which is the same prompt
+again: Anthropic was sent Claude Code's prompt twice on every request.
+Lean, it is sent once, the caller's, and the run's billing and identity
+lines stay. Measured on 2026-11-22 with Claude Code 2.1.330 as both the
+client and the run, the same request as `-p` captured both ways and
+counted on Opus 5.5: 7,812 input tokens appended, 5,627 lean (2,185
+fewer). A title ask (the identity line before a short task prompt), an
+Agent SDK app's own system prompt, and the same prompt sent by any other
+client keep the run's prompt. A conversation's run started before this,
+with Claude Code's prompt, takes no more of its turns: the next one
+starts a lean run told the history, once ("system prompt mode changed").
+Tested by `TestClaudeCodeClientPromptIsNotSentTwice`.
+
 Every run in the interactive mode (not lean, no client marks:
 `appendsPrompt`) gets its caller's instructions by
 `--append-system-prompt-file` instead (`append.md`, the same `leanSystem`

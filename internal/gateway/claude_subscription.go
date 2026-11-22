@@ -5477,6 +5477,26 @@ func leanSystem(req *Request) string {
 	return strings.TrimSpace(withoutBillingHeader(req.System) + envNote(req) + toolChoiceAsk(req))
 }
 
+// sendsClaudeCodePrompt is whether a request's instructions are a whole
+// Claude Code system prompt: Claude Code sent it (its User-Agent, or the
+// one another magpie names), and its instructions begin with Claude Code's
+// or the Claude Agent SDK's identity line and hold the security line every
+// one of its prompts has. Such a run is lean whatever the setting says:
+// told the caller's prompt in place of its own, it still sends Claude
+// Code's, and not two of them: 2,185 fewer input tokens a request on
+// Opus 5.5 with Claude Code 2.1.330 on both sides. A title ask, or an SDK
+// app's own system prompt, keeps the identity line alone and keeps the
+// run's prompt.
+func sendsClaudeCodePrompt(r *http.Request, system string) bool {
+	if !claudeCodeAsks(r) {
+		return false
+	}
+	s := strings.TrimSpace(withoutBillingHeader(system))
+	return (strings.HasPrefix(s, "You are Claude Code, Anthropic's official CLI for Claude") ||
+		strings.HasPrefix(s, "You are a Claude agent, built on Anthropic's Claude Agent SDK.")) &&
+		strings.Contains(s, "IMPORTANT: Assist with authorized security testing")
+}
+
 // historyChunk is how many messages of the history renderClaudePrompt puts
 // in a block. Blocks end at the same messages in every run told the same
 // conversation, so their text is the same; 20 blocks back from a run's
@@ -7446,8 +7466,11 @@ func (s *Server) serveSubscriptionAs(w http.ResponseWriter, r *http.Request, fro
 		req.clientCache.report = func() { cacheReportReady(w, req) }
 	}
 	// a client that places its own cache marks keeps Claude Code's prompt:
-	// its system marks are placed in the run's first message (#1717)
-	req.leanPrompt = name == "Claude Code" && req.clientCache == nil && settings.Shared().ClaudeLeanPrompt
+	// its system marks are placed in the run's first message (#1717). A
+	// client Claude Code's instructions are Claude Code's prompt already,
+	// which the run's own would only repeat (sendsClaudeCodePrompt)
+	req.leanPrompt = name == "Claude Code" && req.clientCache == nil &&
+		(settings.Shared().ClaudeLeanPrompt || sendsClaudeCodePrompt(r, req.System))
 	// the tools of a caller on another computer run there, not where
 	// Claude Code runs (envUnknownNote)
 	req.remoteCaller = !local(r)

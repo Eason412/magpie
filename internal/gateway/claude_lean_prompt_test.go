@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -72,6 +74,9 @@ func (h *resumeHarness) post(body string, header ...string) {
 	}
 	for i := 0; i+1 < len(header); i += 2 {
 		r.Header.Set(header[i], header[i+1])
+	}
+	if h.who != nil {
+		r = r.WithContext(context.WithValue(r.Context(), callerCtx{}, *h.who))
 	}
 	var u Usage
 	if code, msg := h.s.serveClaudeSubscription(httptest.NewRecorder(), r, provider.Anthropic, h.p, "claude-sonnet-5", []byte(body), &u); code != 200 {
@@ -233,6 +238,60 @@ func TestClaudeCallerEnvironmentInAMessageIsNamedByItsFolder(t *testing.T) {
 		}
 		if two := two.log[strings.Index(two.log, "\ntold "):]; strings.Contains(two, last) || !strings.Contains(two, "every tool runs in. Where an environment given before") {
 			t.Fatalf("environment in the instructions: %s", two)
+		}
+	}
+}
+
+// A client Claude Code's instructions are Claude Code's system prompt
+// already: its run is started with them as its system prompt, setting
+// off, so Anthropic is sent Claude Code's prompt once and not the run's
+// own beside the client's. That holds for Claude Code's own prompt and
+// the Agent SDK's, and through another magpie, which names the agent's
+// User-Agent. The same prompt from another client, Claude Code's title
+// ask, and an identity line before an app's own prompt keep the run's
+// prompt. The prompts' first lines are Claude Code 2.1.330's, captured.
+func TestClaudeCodeClientPromptIsNotSentTwice(t *testing.T) {
+	const (
+		cliUA = "claude-cli/2.1.330 (external, cli)"
+		sdkUA = "claude-cli/2.1.330 (external, sdk-cli)"
+		guard = "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes."
+		cli   = "You are Claude Code, Anthropic's official CLI for Claude."
+		sdk   = "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+		agent = "\nYou are an agent working with the user toward their goals, using your own judgment along the way.\n\n" + guard + "\n\n# Harness\n - Text you output outside of tool use is displayed to the user."
+		style = "\nYou are an interactive agent that helps users according to your \"Output Style\", which describes how you should respond to user queries.\n\n" + guard
+		title = "You are naming a coding session so the user can pick it out of a long list of sessions."
+	)
+	body := func(say string, blocks ...string) string {
+		sys := []map[string]string{{"type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.330.d01; cc_entrypoint=cli;"}}
+		for _, b := range blocks {
+			sys = append(sys, map[string]string{"type": "text", "text": b})
+		}
+		s, _ := json.Marshal(sys)
+		return `{"model":"claude-sonnet-5","max_tokens":100,"system":` + string(s) + `,"messages":[{"role":"user","content":"` + say + `"}]}`
+	}
+	h, runs := newLeanHarness(t)
+	h.from = "127.0.0.1:51000"
+	leanSetting(t, false)
+
+	h.post(body("turn-cli", cli, agent), "User-Agent", cliUA)
+	h.post(body("turn-curl", cli, agent), "User-Agent", "curl/8.7.1")
+	h.post(body("turn-title", sdk, title), "User-Agent", sdkUA)
+	h.post(body("turn-own", sdk, "You are Aria, a notes assistant."), "User-Agent", sdkUA)
+	h.who = &caller{ua: sdkUA, relayed: true}
+	h.post(body("turn-relayed", sdk, style), "User-Agent", "magpie/0.1.2400")
+
+	for say, want := range map[string]string{"turn-cli": cli + "\n" + agent, "turn-relayed": sdk + "\n" + style} {
+		r := told(t, runs(), say)
+		if !r.hasSys || !strings.HasPrefix(r.system, strings.SplitN(want, "\n", 2)[0]) || !strings.Contains(r.system, guard) || strings.Contains(r.system, "x-anthropic-billing-header") {
+			t.Fatalf("%s: a client Claude Code's prompt is not the run's system prompt (given %t): %q\n%s", say, r.hasSys, r.system, r.log)
+		}
+		if said := r.log[strings.Index(r.log, "\ntold "):]; strings.Contains(said, "external_system_instructions") || strings.Contains(said, guard) {
+			t.Fatalf("%s: the run was told the client's prompt in its message too:\n%s", say, r.log)
+		}
+	}
+	for _, say := range []string{"turn-curl", "turn-title", "turn-own"} {
+		if r := told(t, runs(), say); r.hasSys || strings.Contains(r.log, "--system-prompt-file") || !strings.Contains(r.log, "external_system_instructions") {
+			t.Fatalf("%s: the run did not keep Claude Code's own prompt (given %t):\n%s", say, r.hasSys, r.log)
 		}
 	}
 }
